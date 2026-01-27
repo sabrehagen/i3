@@ -494,6 +494,154 @@ static Con *get_tree_next_workspace(Con *con, direction_t direction) {
     return workspace;
 }
 
+static inline int floating_con_center(const Con *con, orientation_t orientation) {
+    if (orientation == HORIZ) {
+        return con->rect.x + (con->rect.width / 2);
+    }
+    return con->rect.y + (con->rect.height / 2);
+}
+
+static inline int floating_con_perpendicular_center(const Con *con, orientation_t orientation) {
+    if (orientation == HORIZ) {
+        return con->rect.y + (con->rect.height / 2);
+    }
+    return con->rect.x + (con->rect.width / 2);
+}
+
+static inline bool floating_con_perpendicular_overlap(const Con *a, const Con *b, orientation_t orientation) {
+    if (orientation == HORIZ) {
+        const int a_top = a->rect.y;
+        const int a_bottom = a->rect.y + a->rect.height;
+        const int b_top = b->rect.y;
+        const int b_bottom = b->rect.y + b->rect.height;
+        return a_top < b_bottom && b_top < a_bottom;
+    }
+
+    const int a_left = a->rect.x;
+    const int a_right = a->rect.x + a->rect.width;
+    const int b_left = b->rect.x;
+    const int b_right = b->rect.x + b->rect.width;
+    return a_left < b_right && b_left < a_right;
+}
+
+static Con *floating_neighbor_direct(Con *con, bool previous, orientation_t orientation, bool require_overlap) {
+    Con *parent = con->parent;
+    if (!parent) {
+        return NULL;
+    }
+
+    const int current_center = floating_con_center(con, orientation);
+    const int current_perp_center = floating_con_perpendicular_center(con, orientation);
+    int best_delta = INT_MAX;
+    Con *best = NULL;
+    int64_t best_score = LLONG_MAX;
+
+    Con *candidate;
+    TAILQ_FOREACH (candidate, &(parent->floating_head), floating_windows) {
+        if (candidate == con) {
+            continue;
+        }
+
+        if (!con_fullscreen_permits_focusing(candidate)) {
+            continue;
+        }
+
+        if (require_overlap && !floating_con_perpendicular_overlap(con, candidate, orientation)) {
+            continue;
+        }
+
+        const int candidate_center = floating_con_center(candidate, orientation);
+        const int delta = previous ? current_center - candidate_center : candidate_center - current_center;
+        if (delta <= 0) {
+            continue;
+        }
+
+        const int candidate_perp = floating_con_perpendicular_center(candidate, orientation);
+        const int perp_delta = abs(current_perp_center - candidate_perp);
+        const int64_t score = (int64_t)delta * delta + (int64_t)perp_delta * perp_delta;
+
+        if (score < best_score || (score == best_score && delta < best_delta)) {
+            best_delta = delta;
+            best = candidate;
+            best_score = score;
+        }
+    }
+
+    if (best) {
+        return best;
+    }
+
+    return NULL;
+}
+
+static Con *floating_neighbor_wrap(Con *con, bool previous, orientation_t orientation, bool require_overlap) {
+    Con *parent = con->parent;
+    if (!parent) {
+        return NULL;
+    }
+
+    const int current_perp_center = floating_con_perpendicular_center(con, orientation);
+    int best_wrap_center = 0;
+    int best_wrap_perp = INT_MAX;
+    bool have_wrap = false;
+    Con *best = NULL;
+
+    Con *candidate;
+    TAILQ_FOREACH (candidate, &(parent->floating_head), floating_windows) {
+        if (candidate == con) {
+            continue;
+        }
+
+        if (!con_fullscreen_permits_focusing(candidate)) {
+            continue;
+        }
+
+        if (require_overlap && !floating_con_perpendicular_overlap(con, candidate, orientation)) {
+            continue;
+        }
+
+        const int candidate_center = floating_con_center(candidate, orientation);
+        const int candidate_perp = abs(current_perp_center - floating_con_perpendicular_center(candidate, orientation));
+
+        if (!have_wrap) {
+            best = candidate;
+            best_wrap_center = candidate_center;
+            best_wrap_perp = candidate_perp;
+            have_wrap = true;
+            continue;
+        }
+
+        const bool better_center = previous ? (candidate_center > best_wrap_center)
+                                            : (candidate_center < best_wrap_center);
+        const bool equal_center = candidate_center == best_wrap_center;
+        if (better_center || (equal_center && candidate_perp < best_wrap_perp)) {
+            best = candidate;
+            best_wrap_center = candidate_center;
+            best_wrap_perp = candidate_perp;
+        }
+    }
+
+    if (best) {
+        return best;
+    }
+
+    return NULL;
+}
+
+static Con *floating_neighbor(Con *con, bool previous, orientation_t orientation) {
+    Con *best = floating_neighbor_direct(con, previous, orientation, true);
+    if (!best) {
+        best = floating_neighbor_direct(con, previous, orientation, false);
+    }
+    if (!best) {
+        best = floating_neighbor_wrap(con, previous, orientation, true);
+    }
+    if (!best) {
+        best = floating_neighbor_wrap(con, previous, orientation, false);
+    }
+    return best;
+}
+
 /*
  * Returns the next / previous container to focus in the given direction. Does
  * not modify focus and ensures focus restrictions for fullscreen containers
@@ -526,22 +674,18 @@ static Con *get_tree_next(Con *con, direction_t direction) {
 
         Con *const parent = con->parent;
         if (con->type == CT_FLOATING_CON) {
-            if (orientation != HORIZ) {
-                /* up/down does not change floating containers */
-                return NULL;
-            }
-
-            /* left/right focuses the previous/next floating container */
-            Con *next = previous ? TAILQ_PREV(con, floating_head, floating_windows)
-                                 : TAILQ_NEXT(con, floating_windows);
-            /* If there is no next/previous container, wrap */
+            Con *next = floating_neighbor(con, previous, orientation);
+            /* If no other floating window exists, fall back to the original
+             * left/right behavior to maintain wrap semantics. */
             if (!next) {
-                next = previous ? TAILQ_LAST(&(parent->floating_head), floating_head)
-                                : TAILQ_FIRST(&(parent->floating_head));
+                next = previous ? TAILQ_PREV(con, floating_head, floating_windows)
+                                : TAILQ_NEXT(con, floating_windows);
+                if (!next) {
+                    next = previous ? TAILQ_LAST(&(parent->floating_head), floating_head)
+                                    : TAILQ_FIRST(&(parent->floating_head));
+                }
+                assert(next);
             }
-            /* Our parent does not list us in floating heads? */
-            assert(next);
-
             return next;
         }
 

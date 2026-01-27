@@ -78,26 +78,26 @@ subtest 'basic border styles' => sub {
 
 subtest 'multiple windows in different layouts' => sub {
     fresh_workspace;
-    
+
     my $w1 = open_window;
     my $w2 = open_window;
     my $w3 = open_window;
-    
+
     cmd 'border normal 2';
     is_net_frame_extents($w1, [2, 2, 18, 2], "window 1 in splith layout with normal border");
     is_net_frame_extents($w2, [2, 2, 18, 2], "window 2 in splith layout with normal border");
     is_net_frame_extents($w3, [2, 2, 18, 2], "window 3 in splith layout with normal border");
-    
+
     cmd 'layout stacking';
     is_net_frame_extents($w1, [2, 2, 0, 2], "window 1 in stacking layout");
     is_net_frame_extents($w2, [2, 2, 0, 2], "window 2 in stacking layout");
     is_net_frame_extents($w3, [2, 2, 0, 2], "window 3 in stacking layout");
-    
+
     cmd 'layout tabbed';
     is_net_frame_extents($w1, [2, 2, 0, 2], "window 1 in tabbed layout");
     is_net_frame_extents($w2, [2, 2, 0, 2], "window 2 in tabbed layout");
     is_net_frame_extents($w3, [2, 2, 0, 2], "window 3 in tabbed layout");
-    
+
     cmd 'layout splitv';
     is_net_frame_extents($w1, [2, 2, 18, 2], "window 1 in splitv layout");
     is_net_frame_extents($w2, [2, 2, 18, 2], "window 2 in splitv layout");
@@ -148,11 +148,24 @@ subtest 'hide_edge_borders' => sub {
     is_net_frame_extents($w, [0, 0, 18, 0], "window with smart borders (single window)");
     cmd 'border pixel 3';
     is_net_frame_extents($w, [0, 0, 0, 0], "window with smart borders (single window)");
-    
+
     my $w2 = open_window;
     cmd 'border normal 5';
     is_net_frame_extents($w, [3, 3, 3, 3], "first window with smart borders (multiple windows)");
     is_net_frame_extents($w2, [5, 5, 18, 5], "second window with smart borders (multiple windows)");
+
+    $w2->destroy;
+    wait_for_unmap $w2;
+    cmd 'border normal 3';
+    is_net_frame_extents($w, [0, 0, 18, 0], "single window hides borders again without floating windows");
+
+    my $floating = open_floating_window;
+    is_net_frame_extents($w, [3, 3, 18, 3], "smart borders show when floating window present");
+    cmd 'focus tiling';
+    cmd 'border pixel 3';
+    is_net_frame_extents($w, [3, 3, 3, 3], "smart borders show pixel border when floating window present");
+    $floating->destroy;
+    wait_for_unmap $floating;
 
     exit_gracefully($pid);
     launch_with_config('-default');
@@ -163,13 +176,13 @@ subtest 'floating windows' => sub {
     my $w = open_window;
     cmd 'border normal 4';
     is_net_frame_extents($w, [4, 4, 18, 4], "tiling window with normal border");
-    
+
     cmd 'floating enable';
     is_net_frame_extents($w, [4, 4, 18, 4], "floating window with normal border");
-    
+
     cmd 'border pixel 2';
     is_net_frame_extents($w, [2, 2, 2, 2], "floating window with pixel border");
-    
+
     cmd 'border none';
     is_net_frame_extents($w, [0, 0, 0, 0], "floating window with no border");
 };

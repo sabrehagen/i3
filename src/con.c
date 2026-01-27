@@ -1820,6 +1820,19 @@ static bool has_outer_gaps(gaps_t gaps) {
 }
 
 /*
+ * Returns true if the workspace has any floating containers. Used for smart
+ * border decisions so that tiled windows keep their borders when a floating
+ * window is present.
+ */
+static bool workspace_has_floating(Con *workspace) {
+    if (!workspace) {
+        return false;
+    }
+
+    return !TAILQ_EMPTY(&(workspace->floating_head));
+}
+
+/*
  * Returns whether the window decoration (title bar) should be drawn into the
  * X11 frame window of this container (default) or into the X11 frame window of
  * the parent container (for stacked/tabbed containers).
@@ -1834,8 +1847,12 @@ bool con_draw_decoration_into_frame(Con *con) {
 }
 
 static Rect con_border_style_rect_without_title(Con *con) {
-    if ((config.hide_edge_borders == HEBM_SMART && con_num_visible_children(con_get_workspace(con)) <= 1) ||
-        (config.hide_edge_borders == HEBM_SMART_NO_GAPS && con_num_visible_children(con_get_workspace(con)) <= 1 && !has_outer_gaps(calculate_effective_gaps(con)))) {
+    Con *workspace = con_get_workspace(con);
+    const bool single_visible_child = workspace && con_num_visible_children(workspace) <= 1;
+    const bool floating_present = workspace_has_floating(workspace);
+
+    if ((config.hide_edge_borders == HEBM_SMART && single_visible_child && !floating_present) ||
+        (config.hide_edge_borders == HEBM_SMART_NO_GAPS && single_visible_child && !floating_present && !has_outer_gaps(calculate_effective_gaps(con)))) {
         if (!con_is_floating(con)) {
             return (Rect){0, 0, 0, 0};
         }

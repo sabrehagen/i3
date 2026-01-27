@@ -574,70 +574,10 @@ static Con *floating_neighbor_direct(Con *con, bool previous, orientation_t orie
     return NULL;
 }
 
-static Con *floating_neighbor_wrap(Con *con, bool previous, orientation_t orientation, bool require_overlap) {
-    Con *parent = con->parent;
-    if (!parent) {
-        return NULL;
-    }
-
-    const int current_perp_center = floating_con_perpendicular_center(con, orientation);
-    int best_wrap_center = 0;
-    int best_wrap_perp = INT_MAX;
-    bool have_wrap = false;
-    Con *best = NULL;
-
-    Con *candidate;
-    TAILQ_FOREACH (candidate, &(parent->floating_head), floating_windows) {
-        if (candidate == con) {
-            continue;
-        }
-
-        if (!con_fullscreen_permits_focusing(candidate)) {
-            continue;
-        }
-
-        if (require_overlap && !floating_con_perpendicular_overlap(con, candidate, orientation)) {
-            continue;
-        }
-
-        const int candidate_center = floating_con_center(candidate, orientation);
-        const int candidate_perp = abs(current_perp_center - floating_con_perpendicular_center(candidate, orientation));
-
-        if (!have_wrap) {
-            best = candidate;
-            best_wrap_center = candidate_center;
-            best_wrap_perp = candidate_perp;
-            have_wrap = true;
-            continue;
-        }
-
-        const bool better_center = previous ? (candidate_center > best_wrap_center)
-                                            : (candidate_center < best_wrap_center);
-        const bool equal_center = candidate_center == best_wrap_center;
-        if (better_center || (equal_center && candidate_perp < best_wrap_perp)) {
-            best = candidate;
-            best_wrap_center = candidate_center;
-            best_wrap_perp = candidate_perp;
-        }
-    }
-
-    if (best) {
-        return best;
-    }
-
-    return NULL;
-}
-
 static Con *floating_neighbor(Con *con, bool previous, orientation_t orientation) {
     Con *best = floating_neighbor_direct(con, previous, orientation, true);
     if (!best) {
         best = floating_neighbor_direct(con, previous, orientation, false);
-    }
-    if (!best) {
-        best = floating_neighbor_wrap(con, previous, orientation, true);
-    }
-    if (!best) {
-        best = floating_neighbor_wrap(con, previous, orientation, false);
     }
     return best;
 }
@@ -674,19 +614,7 @@ static Con *get_tree_next(Con *con, direction_t direction) {
 
         Con *const parent = con->parent;
         if (con->type == CT_FLOATING_CON) {
-            Con *next = floating_neighbor(con, previous, orientation);
-            /* If no other floating window exists, fall back to the original
-             * left/right behavior to maintain wrap semantics. */
-            if (!next) {
-                next = previous ? TAILQ_PREV(con, floating_head, floating_windows)
-                                : TAILQ_NEXT(con, floating_windows);
-                if (!next) {
-                    next = previous ? TAILQ_LAST(&(parent->floating_head), floating_head)
-                                    : TAILQ_FIRST(&(parent->floating_head));
-                }
-                assert(next);
-            }
-            return next;
+            return floating_neighbor(con, previous, orientation);
         }
 
         if (con_num_children(parent) > 1 && con_orientation(parent) == orientation) {

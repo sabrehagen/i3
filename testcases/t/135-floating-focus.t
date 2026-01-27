@@ -167,9 +167,18 @@ is($x->input_focus, $second->id, 'second (floating) container focused');
 
 $tmp = fresh_workspace;
 
-$first = open_floating_window({ background_color => '#ff0000' });# window 10
-$second = open_floating_window({ background_color => '#00ff00' }); # window 11
-$third = open_floating_window({ background_color => '#0000ff' }); # window 12
+$first = open_floating_window({
+    background_color => '#ff0000',
+    rect => [100, 100, 200, 100],
+}); # window 10
+$second = open_floating_window({
+    background_color => '#00ff00',
+    rect => [400, 100, 200, 100],
+}); # window 11
+$third = open_floating_window({
+    background_color => '#0000ff',
+    rect => [700, 100, 200, 100],
+}); # window 12
 
 is($x->input_focus, $third->id, 'third container focused');
 
@@ -183,15 +192,53 @@ is($x->input_focus, $first->id, 'first container focused');
 
 cmd 'focus left';
 
-is($x->input_focus, $third->id, 'focus wrapped to third container');
+is($x->input_focus, $first->id, 'focus unchanged when no window to the left');
 
 cmd 'focus right';
 
-is($x->input_focus, $first->id, 'focus wrapped to first container');
+is($x->input_focus, $second->id, 'second container focused after moving right');
 
 cmd 'focus right';
 
-is($x->input_focus, $second->id, 'focus on second container');
+is($x->input_focus, $third->id, 'third container focused');
+
+cmd 'focus right';
+
+is($x->input_focus, $third->id, 'focus unchanged when no window to the right');
+
+#############################################################################
+# 6a: ensure focus does not change when no floating window exists
+#      in the requested direction
+#############################################################################
+
+$tmp = fresh_workspace;
+
+my $top = open_floating_window({
+    background_color => '#aaaaaa',
+    rect => [300, 100, 200, 150],
+});
+my $bottom = open_floating_window({
+    background_color => '#bbbbbb',
+    rect => [300, 400, 200, 150],
+});
+
+is($x->input_focus, $bottom->id, 'bottom floating window focused');
+
+cmd 'focus left';
+
+is($x->input_focus, $bottom->id, 'focus unchanged when no floating window to the left');
+
+cmd 'focus right';
+
+is($x->input_focus, $bottom->id, 'focus unchanged when no floating window to the right');
+
+cmd 'focus up';
+
+is($x->input_focus, $top->id, 'focus moved vertically when window exists');
+
+cmd 'focus down';
+
+is($x->input_focus, $bottom->id, 'focus returned to bottom window');
 
 #############################################################################
 # 7: verify that focusing the parent of a window inside a floating con goes
